@@ -15,3 +15,9 @@ textblob
 
 # Machine Learning
 scikit-learn
+
+# Para obtener datos de Reddit (sentimiento real)
+praw
+
+# Para hacer solicitudes HTTP (conectar con APIs web de noticias/twitter)
+requests

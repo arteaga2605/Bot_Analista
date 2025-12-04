@@ -1,49 +1,43 @@
-# main.py (Integración Fase 1, 2 y 3)
+# main.py (Versión con Datos Reales en Fases 1 y 2)
 import data_fetcher
 import technical_analysis
 import sentiment_analyzer
-import prediction_model # NUEVO
+import prediction_model
+import social_media_fetcher # NUEVO IMPORT
 import time
 import pandas as pd
 
-# Datos simulados de noticias (Misma simulación)
-SIMULATED_NEWS = [
-    "CEO de Coinbase: La regulación de las criptomonedas es inminente y positiva.",
-    "Ballenas de Bitcoin mueven 500 millones USD a exchanges, generando incertidumbre.",
-    "El RSI de Ethereum muestra sobreventa, posible rebote en camino.",
-    "Nuevo fondo de inversión de BlackRock aprueba exposición a activos digitales.",
-    "El miedo y la codicia han alcanzado niveles de euforia, ¡cuidado con la corrección!",
-]
-
 def run_bot():
-    print("--- 🤖 INICIANDO CRYPTO ANALYST BOT (FASE 3: PREDICCIÓN) ---")
+    print("--- 🤖 INICIANDO CRYPTO ANALYST BOT (VERSIÓN DATOS REALES) ---")
     
-    # 1. Obtener Datos Técnicos
+    # 1. Obtener Datos Técnicos (REAL)
     df = data_fetcher.fetch_market_data()
     
     if df is not None:
-        # 2. Análisis Técnico
+        
+        # 2. Obtener Datos Sociales (REAL)
+        real_headlines = social_media_fetcher.fetch_recent_headlines(symbol=data_fetcher.config.SYMBOL)
+        
+        # 3. Análisis Técnico
         df_analyzed = technical_analysis.analyze_data(df)
         
-        # 3. Análisis de Sentimiento
-        sentiment_data = sentiment_analyzer.analyze_crypto_narrative(SIMULATED_NEWS)
+        # 4. Análisis de Sentimiento (USANDO DATOS REALES)
+        sentiment_data = sentiment_analyzer.analyze_crypto_narrative(real_headlines)
         
-        # 4. PREPARACIÓN Y ENTRENAMIENTO DEL MODELO (SIMULADO)
-        # Aquí es donde le enseñamos al modelo a aprender de los datos pasados (simulados)
+        # 5. PREPARACIÓN Y ENTRENAMIENTO DEL MODELO (Aprende de datos históricos REALES)
         data_for_ml = prediction_model.prepare_data_for_training(df_analyzed, sentiment_data)
         accuracy = prediction_model.train_or_update_model(data_for_ml)
 
-        # 5. PREDICCIÓN EN TIEMPO REAL
+        # 6. PREDICCIÓN EN TIEMPO REAL
         current_features = prediction_model.get_current_features(df_analyzed, sentiment_data)
         prob_up, prediction_text = prediction_model.predict_next_move(current_features)
         
-        # 6. Reporte Final
-        
+        # 7. Reporte Final
         price = df_analyzed.iloc[-1]['close'] if not df_analyzed.empty else 0
         rsi = df_analyzed.iloc[-1]['RSI'] if not df_analyzed.empty else 0
         
         print("\n" + "="*50)
-        print("📢 REPORTE PROFESIONAL DE PREDICCIÓN (IA)")
+        print("📢 REPORTE PROFESIONAL DE PREDICCIÓN (IA) - 100% REAL")
         print("="*50)
         
         # Resumen Técnico
@@ -52,7 +46,7 @@ def run_bot():
         print(f"RSI (14) Actual: {round(rsi, 2)}")
 
         # Resumen Sentimiento
-        print(f"\n📰 SENTIMIENTO (Polaridad): {round(sentiment_data[0] * 100, 2)}% (Impacto en IA)")
+        print(f"\n📰 SENTIMIENTO (Polaridad Promedio de Noticias): {round(sentiment_data[0] * 100, 2)}%")
         
         # Predicción Final de la IA
         print("\n🧠 PREDICCIÓN DEL MODELO ML:")
