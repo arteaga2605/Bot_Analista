@@ -1,4 +1,4 @@
-# backtester.py (ACTUALIZADO con STOP LOSS y TAKE PROFIT)
+# backtester.py (ACTUALIZADO con Umbrales de Confianza Ajustados)
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,9 +8,12 @@ from data_fetcher import config
 # --- CONFIGURACIÓN DE BACKTESTING ---
 INITIAL_CAPITAL = 1000.0  
 COMMISSION_FEE = 0.001   
-# --- NUEVOS PARÁMETROS DE RIESGO ---
-STOP_LOSS_PCT = 0.05    # Vender si la posición pierde 5%
-TAKE_PROFIT_PCT = 0.10  # Vender si la posición gana 10% 
+# --- PARÁMETROS DE RIESGO ---
+STOP_LOSS_PCT = 0.05    
+TAKE_PROFIT_PCT = 0.10  
+# --- PARÁMETROS DE CONFIANZA ---
+BUY_THRESHOLD = 0.70    # Aumentado de 0.60 a 0.70
+SELL_THRESHOLD = 0.30   # Disminuido de 0.40 a 0.30
 # ------------------------------------
 
 def run_backtest(data_for_ml):
@@ -24,7 +27,7 @@ def run_backtest(data_for_ml):
         print("❌ ERROR: El modelo de predicción no está entrenado o no se cargó.")
         return
 
-    print("\n--- 📈 INICIANDO BACKTESTING con SL/TP ---")
+    print(f"\n--- 📈 INICIANDO BACKTESTING (Umbrales: COMPRA > {BUY_THRESHOLD*100}%, VENTA < {SELL_THRESHOLD*100}%) ---")
     
     df = data_for_ml.copy()
     
@@ -38,55 +41,53 @@ def run_backtest(data_for_ml):
     df['Prob_Up'] = probabilities[:, 1]
     
     # 3. Generación de Señales de Compra/Venta
-    df['Signal'] = np.where(df['Prob_Up'] > 0.60, 1, 0)
-    df['Signal'] = np.where(df['Prob_Up'] < 0.40, -1, df['Signal'])
+    # Señal de Compra (1) si Prob_Up > 0.70 (BUY_THRESHOLD)
+    df['Signal'] = np.where(df['Prob_Up'] > BUY_THRESHOLD, 1, 0)
+    
+    # Señal de Venta (-1) si Prob_Up < 0.30 (SELL_THRESHOLD)
+    df['Signal'] = np.where(df['Prob_Up'] < SELL_THRESHOLD, -1, df['Signal'])
 
     # 4. SIMULACIÓN DE TRADING
     
     capital = INITIAL_CAPITAL
-    position = 0          # 0: Sin posición, 1: Largo (Comprado)
+    position = 0          
     df['Capital'] = INITIAL_CAPITAL
-    shares_bought = 0     # Cantidad de activos comprados
-    entry_price = 0       # Precio al que se entró en la última operación
+    shares_bought = 0     
+    entry_price = 0       
     
     for i in range(1, len(df)):
         signal = df['Signal'].iloc[i-1]
         close_price = df['close'].iloc[i] 
-        exit_operation = None # 'SL', 'TP', 'AI'
+        exit_operation = None 
 
-        # *** LÓGICA DE GESTIÓN DE RIESGO (Solo si hay posición) ***
+        # *** LÓGICA DE GESTIÓN DE RIESGO ***
         if position == 1:
-            # Cálculo de la ganancia/pérdida porcentual
             profit_pct = (close_price / entry_price) - 1.0
 
-            if profit_pct <= -STOP_LOSS_PCT: # Si alcanza el límite de pérdida (5%)
+            if profit_pct <= -STOP_LOSS_PCT: 
                 exit_operation = 'SL'
-            elif profit_pct >= TAKE_PROFIT_PCT: # Si alcanza el límite de ganancia (10%)
+            elif profit_pct >= TAKE_PROFIT_PCT: 
                 exit_operation = 'TP'
-            elif signal == -1 or signal == 0: # Salida por señal de la IA (Lógica anterior)
+            elif signal == -1 or signal == 0: 
                 exit_operation = 'AI'
 
-        # --- Lógica de COMPRA (Abrir Posición Larga) ---
+        # --- Lógica de COMPRA ---
         if signal == 1 and position == 0:
             entry_price = close_price
             shares_bought = (capital * (1 - COMMISSION_FEE)) / entry_price
             position = 1
 
-        # --- Lógica de VENTA (Cerrar Posición Larga) ---
+        # --- Lógica de VENTA ---
         if exit_operation:
             exit_price = close_price
             
-            # Cálculo de la ganancia
             gross_profit = shares_bought * exit_price
             net_capital = gross_profit * (1 - COMMISSION_FEE)
             
             capital = net_capital
             position = 0
             shares_bought = 0
-            entry_price = 0 # Reiniciar precio de entrada
-
-            # print(f"VENTA por {exit_operation}: {df.index[i]} - Precio: {exit_price:,.2f} - Capital: {capital:,.2f}")
-
+            entry_price = 0 
 
         # --- Lógica de MANTENER Posición ---
         elif position == 1:
@@ -95,8 +96,7 @@ def run_backtest(data_for_ml):
         
         df.loc[df.index[i], 'Capital'] = capital
 
-    # 5. CÁLCULO DE MÉTRICAS FINALES (El resto de la función sigue igual)
-    
+    # 5. CÁLCULO DE MÉTRICAS FINALES
     final_capital = df['Capital'].iloc[-1]
     net_profit = final_capital - INITIAL_CAPITAL
     
@@ -125,7 +125,7 @@ def plot_backtest_results(df):
     """
     Genera un gráfico de la curva de capital y el precio.
     """
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt 
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
     color = 'tab:red'

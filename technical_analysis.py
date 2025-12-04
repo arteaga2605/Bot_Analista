@@ -1,4 +1,4 @@
-# technical_analysis.py (Versión con ADX y CCI)
+# technical_analysis.py (Updated with MACD and ATR)
 import pandas as pd
 import ta 
 
@@ -21,10 +21,7 @@ def analyze_data(df):
     # 3. EMA (Media Móvil Exponencial) - 20 periodos
     df['EMA_20'] = ta.trend.EMAIndicator(close=df['close'], window=20).ema_indicator()
     
-    # --- NUEVOS INDICADORES ---
-    
     # 4. ADX (Average Directional Index) - Fuerza de Tendencia
-    # ADXIndicator añade las columnas ADX, +DI y -DI
     adx_indicator = ta.trend.ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
     df['ADX'] = adx_indicator.adx()
 
@@ -35,6 +32,14 @@ def analyze_data(df):
     bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
     df['BBL'] = bb.bollinger_lband()
     df['BBU'] = bb.bollinger_hband()
+
+    # --- NUEVOS INDICADORES ---
+    # 7. MACD (Moving Average Convergence Divergence)
+    macd_indicator = ta.trend.MACD(close=df['close'], window_fast=12, window_slow=26, window_sign=9)
+    df['MACD'] = macd_indicator.macd() # Solo usamos la línea MACD principal
+    
+    # 8. ATR (Average True Range) - Volatilidad
+    df['ATR'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
     
     # Eliminar las filas con NaN (las primeras filas no tienen cálculo completo)
     df = df.dropna()

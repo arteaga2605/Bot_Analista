@@ -24,3 +24,6 @@ requests
 
 # Visualización y Graficación
 matplotlib
+
+# Machine Learning Avanzado
+xgboost
