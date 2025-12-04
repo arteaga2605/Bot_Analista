@@ -1,6 +1,6 @@
-# technical_analysis.py (Versión con librería 'ta')
+# technical_analysis.py (Versión con ADX y CCI)
 import pandas as pd
-import ta # Importación de la nueva librería
+import ta 
 
 def analyze_data(df):
     """
@@ -13,36 +13,42 @@ def analyze_data(df):
     print("📊 Calculando indicadores técnicos con la librería 'ta'...")
 
     # 1. RSI (Índice de Fuerza Relativa)
-    # df['RSI'] = df.ta.rsi(length=14) <--- Código anterior
     df['RSI'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
 
     # 2. SMA (Media Móvil Simple) - 50 periodos
-    # df['SMA_50'] = df.ta.sma(length=50) <--- Código anterior
     df['SMA_50'] = ta.trend.SMAIndicator(close=df['close'], window=50).sma_indicator()
 
     # 3. EMA (Media Móvil Exponencial) - 20 periodos
     df['EMA_20'] = ta.trend.EMAIndicator(close=df['close'], window=20).ema_indicator()
-
-    # 4. Bandas de Bollinger (Añade 3 columnas: alta, baja y media)
-    bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
-    df['BBL'] = bb.bollinger_lband() # Banda Baja
-    df['BBU'] = bb.bollinger_hband() # Banda Alta
     
-    # IMPORTANTE: La librería 'ta' puede dejar valores NaN al inicio del DataFrame 
-    # (porque necesita datos previos para calcular los indicadores).
-    # Eliminamos esas filas para trabajar solo con datos limpios
+    # --- NUEVOS INDICADORES ---
+    
+    # 4. ADX (Average Directional Index) - Fuerza de Tendencia
+    # ADXIndicator añade las columnas ADX, +DI y -DI
+    adx_indicator = ta.trend.ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
+    df['ADX'] = adx_indicator.adx()
+
+    # 5. CCI (Commodity Channel Index) - Desviación del promedio
+    df['CCI'] = ta.trend.CCIIndicator(high=df['high'], low=df['low'], close=df['close'], window=20).cci()
+
+    # 6. Bandas de Bollinger 
+    bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
+    df['BBL'] = bb.bollinger_lband()
+    df['BBU'] = bb.bollinger_hband()
+    
+    # Eliminar las filas con NaN (las primeras filas no tienen cálculo completo)
     df = df.dropna()
 
     return df
 
 def generate_signal(df):
     """
-    Genera una señal simple basada en el último dato (la vela más reciente cerrada).
+    Genera una señal simple basada en el último dato para el reporte de texto.
     """
     if df.empty:
         return "SIN DATOS VÁLIDOS", 0, 0
         
-    last_row = df.iloc[-1] # Última fila
+    last_row = df.iloc[-1]
     rsi = last_row['RSI']
     close_price = last_row['close']
     ema_20 = last_row['EMA_20']
@@ -50,7 +56,6 @@ def generate_signal(df):
     signal = "NEUTRAL"
     confidence = "0%"
 
-    # Lógica simple de ejemplo
     if rsi < 30 and close_price > ema_20:
         signal = "POSIBLE COMPRA (Rebote)"
         confidence = "60%"

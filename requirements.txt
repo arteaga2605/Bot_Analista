@@ -21,3 +21,6 @@ praw
 
 # Para hacer solicitudes HTTP (conectar con APIs web de noticias/twitter)
 requests
+
+# Visualización y Graficación
+matplotlib

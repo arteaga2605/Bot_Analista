@@ -3,9 +3,10 @@ import ccxt
 import pandas as pd
 import config
 
-def fetch_market_data():
+def fetch_market_data(limit=config.LIMIT): # <-- AHORA ACEPTA EL ARGUMENTO 'limit'
     """
     Conecta con el exchange y descarga datos OHLCV (Open, High, Low, Close, Volume).
+    Utiliza el límite pasado como argumento o el límite por defecto de config.
     """
     print(f"🔄 Conectando a {config.EXCHANGE_ID} para obtener datos de {config.SYMBOL}...")
     
@@ -17,7 +18,7 @@ def fetch_market_data():
         })
 
         # Descargar velas (OHLCV)
-        ohlcv = exchange.fetch_ohlcv(config.SYMBOL, config.TIMEFRAME, limit=config.LIMIT)
+        ohlcv = exchange.fetch_ohlcv(config.SYMBOL, config.TIMEFRAME, limit=limit) # <-- USAMOS EL NUEVO ARGUMENTO 'limit'
 
         # Convertir a DataFrame de Pandas (formato tabla)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
