@@ -12,3 +12,6 @@ ta==0.11.0
 
 # Análisis de Sentimiento
 textblob
+
+# Machine Learning
+scikit-learn
