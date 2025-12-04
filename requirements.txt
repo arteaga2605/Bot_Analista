@@ -9,3 +9,6 @@ pandas==1.5.3
 
 # NUEVO: Librería de Análisis Técnico Simple y Estable
 ta==0.11.0
+
+# Análisis de Sentimiento
+textblob
