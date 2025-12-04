@@ -1,16 +1,13 @@
 # social_media_fetcher.py
 import requests
-import random # Lo usamos para simular un desfase, pero la estructura es real
+import random 
 
 # URL de una API simulada de noticias de criptomonedas (comportamiento real)
-# Nota: En un proyecto real, necesitarías una API key para CryptoPanic o NewsAPI.
-# Usaremos una URL de prueba para simular la conexión HTTP real.
 NEWS_API_URL = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
 
 def fetch_recent_headlines(symbol='BTC'):
     """
     Simula la obtención de titulares de noticias recientes usando requests.
-    En la vida real, se filtraría por el símbolo (ej. Bitcoin).
     """
     print("📡 Obteniendo titulares de noticias recientes (vía API)...")
     
@@ -22,18 +19,26 @@ def fetch_recent_headlines(symbol='BTC'):
         data = response.json()
         headlines = []
         
-        # Parseamos el JSON para extraer los titulares de las últimas 10 noticias
-        if 'Data' in data:
+        # --- CORRECCIÓN DEL ERROR ---
+        # 1. Verificamos que 'Data' existe
+        # 2. Verificamos que 'Data' es una lista (o lo tratamos como tal)
+        if 'Data' in data and isinstance(data['Data'], list):
+            # Recorremos la lista de datos y la rebanamos
             for item in data['Data'][:10]:
-                if 'title' in item:
+                if isinstance(item, dict) and 'title' in item:
                     headlines.append(item['title'])
             
             print(f"✅ {len(headlines)} titulares obtenidos de fuente real.")
             return headlines
         
+        print("⚠️ Advertencia: 'Data' no está presente o no es una lista en la respuesta de la API.")
         return []
 
     except requests.exceptions.RequestException as e:
         print(f"❌ Error al conectar con la API de noticias: {e}")
         # Retornamos una lista vacía para no romper el programa
         return ["Error de red, sentimiento desconocido."]
+    except TypeError as e:
+        print(f"❌ TypeError durante el parseo de la API: {e}")
+        # Si el error persiste, al menos manejamos la excepción
+        return []

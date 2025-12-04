@@ -1,31 +1,31 @@
-# backtester.py (CORREGIDO para Persistencia y Acceso al Modelo)
+# backtester.py (ACTUALIZADO con STOP LOSS y TAKE PROFIT)
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import prediction_model # <-- Importamos el módulo completo
+import prediction_model 
 from data_fetcher import config 
 
 # --- CONFIGURACIÓN DE BACKTESTING ---
 INITIAL_CAPITAL = 1000.0  
 COMMISSION_FEE = 0.001   
+# --- NUEVOS PARÁMETROS DE RIESGO ---
+STOP_LOSS_PCT = 0.05    # Vender si la posición pierde 5%
+TAKE_PROFIT_PCT = 0.10  # Vender si la posición gana 10% 
+# ------------------------------------
 
-def run_backtest(data_for_ml): # <-- Ahora acepta el DataFrame de ML
+def run_backtest(data_for_ml):
     """
     Simula operaciones de compra y venta basándose en las predicciones del modelo.
     """
-    # Accedemos al modelo global y a la lista de características a través del módulo prediction_model
     model = prediction_model.model 
     feature_cols_for_prediction = prediction_model.final_feature_cols 
     
     if model is None: 
-        # Este error ahora solo se activará si el entrenamiento falló
         print("❌ ERROR: El modelo de predicción no está entrenado o no se cargó.")
         return
 
-    print("\n--- 📈 INICIANDO BACKTESTING ---")
+    print("\n--- 📈 INICIANDO BACKTESTING con SL/TP ---")
     
-    # 1. Preparación de datos para la simulación
-    # data_for_ml ya tiene todas las features, incluyendo 'Polaridad_Sentimiento', 'close' y 'Target'.
     df = data_for_ml.copy()
     
     if df.shape[0] < 100:
@@ -34,16 +34,11 @@ def run_backtest(data_for_ml): # <-- Ahora acepta el DataFrame de ML
 
     # 2. Predicción en todas las velas
     X = df[feature_cols_for_prediction] 
-    
-    # predict_proba devuelve [Prob. Bajada, Prob. Subida]
     probabilities = model.predict_proba(X) 
     df['Prob_Up'] = probabilities[:, 1]
     
     # 3. Generación de Señales de Compra/Venta
-    # Señal de Compra (1) si Prob_Up > 60%
     df['Signal'] = np.where(df['Prob_Up'] > 0.60, 1, 0)
-    
-    # Señal de Venta (-1) si Prob_Up < 40% (o si la predicción es bajista)
     df['Signal'] = np.where(df['Prob_Up'] < 0.40, -1, df['Signal'])
 
     # 4. SIMULACIÓN DE TRADING
@@ -51,11 +46,26 @@ def run_backtest(data_for_ml): # <-- Ahora acepta el DataFrame de ML
     capital = INITIAL_CAPITAL
     position = 0          # 0: Sin posición, 1: Largo (Comprado)
     df['Capital'] = INITIAL_CAPITAL
+    shares_bought = 0     # Cantidad de activos comprados
+    entry_price = 0       # Precio al que se entró en la última operación
     
     for i in range(1, len(df)):
         signal = df['Signal'].iloc[i-1]
         close_price = df['close'].iloc[i] 
-        
+        exit_operation = None # 'SL', 'TP', 'AI'
+
+        # *** LÓGICA DE GESTIÓN DE RIESGO (Solo si hay posición) ***
+        if position == 1:
+            # Cálculo de la ganancia/pérdida porcentual
+            profit_pct = (close_price / entry_price) - 1.0
+
+            if profit_pct <= -STOP_LOSS_PCT: # Si alcanza el límite de pérdida (5%)
+                exit_operation = 'SL'
+            elif profit_pct >= TAKE_PROFIT_PCT: # Si alcanza el límite de ganancia (10%)
+                exit_operation = 'TP'
+            elif signal == -1 or signal == 0: # Salida por señal de la IA (Lógica anterior)
+                exit_operation = 'AI'
+
         # --- Lógica de COMPRA (Abrir Posición Larga) ---
         if signal == 1 and position == 0:
             entry_price = close_price
@@ -63,7 +73,7 @@ def run_backtest(data_for_ml): # <-- Ahora acepta el DataFrame de ML
             position = 1
 
         # --- Lógica de VENTA (Cerrar Posición Larga) ---
-        elif (signal == -1 or signal == 0) and position == 1:
+        if exit_operation:
             exit_price = close_price
             
             # Cálculo de la ganancia
@@ -73,6 +83,10 @@ def run_backtest(data_for_ml): # <-- Ahora acepta el DataFrame de ML
             capital = net_capital
             position = 0
             shares_bought = 0
+            entry_price = 0 # Reiniciar precio de entrada
+
+            # print(f"VENTA por {exit_operation}: {df.index[i]} - Precio: {exit_price:,.2f} - Capital: {capital:,.2f}")
+
 
         # --- Lógica de MANTENER Posición ---
         elif position == 1:
@@ -81,7 +95,7 @@ def run_backtest(data_for_ml): # <-- Ahora acepta el DataFrame de ML
         
         df.loc[df.index[i], 'Capital'] = capital
 
-    # 5. CÁLCULO DE MÉTRICAS FINALES
+    # 5. CÁLCULO DE MÉTRICAS FINALES (El resto de la función sigue igual)
     
     final_capital = df['Capital'].iloc[-1]
     net_profit = final_capital - INITIAL_CAPITAL
@@ -111,17 +125,15 @@ def plot_backtest_results(df):
     """
     Genera un gráfico de la curva de capital y el precio.
     """
-    import matplotlib.pyplot as plt # Importamos aquí para evitar errores si no está instalado
+    import matplotlib.pyplot as plt
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
-    # Gráfico de Capital
     color = 'tab:red'
     ax1.set_xlabel(f'Fecha/Hora ({config.TIMEFRAME})')
     ax1.set_ylabel('Capital ($)', color=color)
     ax1.plot(df.index, df['Capital'], color=color, label='Curva de Capital (Estrategia)')
     ax1.tick_params(axis='y', labelcolor=color)
     
-    # Gráfico de Precio (Eje secundario)
     ax2 = ax1.twinx()  
     color = 'tab:blue'
     ax2.set_ylabel('Precio de Cierre', color=color) 
