@@ -1,40 +1,48 @@
-# data_fetcher.py
-import ccxt
+# data_fetcher.py (COMPLETO Y CORREGIDO: Ticker LINKUSDT)
 import pandas as pd
-import config
+from binance.client import Client
+import os
 
-def fetch_market_data(limit=config.LIMIT): # <-- AHORA ACEPTA EL ARGUMENTO 'limit'
+# --- CONFIGURACIÓN DE LA API DE BINANCE ---
+config = {
+    'SYMBOL': 'LINKUSDT', 
+    'TIMEFRAME': '1h',
+    'LIMIT': 1000  
+}
+# --- CREDENCIALES (Asegúrate de que estas variables de entorno estén configuradas) ---
+API_KEY = os.environ.get('BINANCE_API_KEY')
+API_SECRET = os.environ.get('BINANCE_API_SECRET')
+
+def fetch_data():
     """
-    Conecta con el exchange y descarga datos OHLCV (Open, High, Low, Close, Volume).
-    Utiliza el límite pasado como argumento o el límite por defecto de config.
+    Obtiene datos históricos (velas) de Binance.
     """
-    print(f"🔄 Conectando a {config.EXCHANGE_ID} para obtener datos de {config.SYMBOL}...")
-    
     try:
-        # Inicializar el exchange
-        exchange_class = getattr(ccxt, config.EXCHANGE_ID)
-        exchange = exchange_class({
-            'enableRateLimit': True, # Respetar límites de velocidad para no ser baneado
-        })
-
-        # Descargar velas (OHLCV)
-        ohlcv = exchange.fetch_ohlcv(config.SYMBOL, config.TIMEFRAME, limit=limit) # <-- USAMOS EL NUEVO ARGUMENTO 'limit'
-
-        # Convertir a DataFrame de Pandas (formato tabla)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        # Inicialización del cliente (usa la API pública si las credenciales no están definidas)
+        client = Client(API_KEY, API_SECRET)
         
-        # Convertir timestamp a fecha legible
+        # Obtener los datos históricos
+        klines = client.get_historical_klines(
+            symbol=config['SYMBOL'],
+            interval=config['TIMEFRAME'],
+            limit=config['LIMIT']
+        )
+        
+        # Estructurar los datos en un DataFrame de Pandas
+        df = pd.DataFrame(klines, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume', 
+            'close_time', 'quote_asset_volume', 'number_of_trades', 
+            'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+        ])
+        
+        # Limpieza y conversión
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        
-        print(f"✅ Datos obtenidos exitosamente: {len(df)} velas.")
+        df.set_index('timestamp', inplace=True)
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = pd.to_numeric(df[col])
+            
         return df
-
-    except ccxt.NetworkError as e:
-        print(f"❌ Error de Red: {e}")
-        return None
-    except ccxt.ExchangeError as e:
-        print(f"❌ Error del Exchange (posible símbolo inválido): {e}")
-        return None
+        
     except Exception as e:
-        print(f"❌ Error desconocido: {e}")
+        print(f"❌ Error al obtener datos de Binance: {e}")
         return None

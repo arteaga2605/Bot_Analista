@@ -1,4 +1,4 @@
-# backtester.py (ACTUALIZADO con Umbrales de Confianza Ajustados)
+# backtester.py (FINAL CORREGIDO)
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,14 +6,14 @@ import prediction_model
 from data_fetcher import config 
 
 # --- CONFIGURACIÓN DE BACKTESTING ---
-INITIAL_CAPITAL = 1000.0  
+INITIAL_CAPITAL = 10.0  
 COMMISSION_FEE = 0.001   
 # --- PARÁMETROS DE RIESGO ---
 STOP_LOSS_PCT = 0.05    
 TAKE_PROFIT_PCT = 0.10  
 # --- PARÁMETROS DE CONFIANZA ---
-BUY_THRESHOLD = 0.70    # Aumentado de 0.60 a 0.70
-SELL_THRESHOLD = 0.30   # Disminuido de 0.40 a 0.30
+BUY_THRESHOLD = 0.70    
+SELL_THRESHOLD = 0.30   
 # ------------------------------------
 
 def run_backtest(data_for_ml):
@@ -31,20 +31,32 @@ def run_backtest(data_for_ml):
     
     df = data_for_ml.copy()
     
-    if df.shape[0] < 100:
-        print(f"⚠️ Datos insuficientes para Backtesting: {df.shape[0]} filas.")
+    if df.shape[0] < 2: 
+        print(f"⚠️ Datos insuficientes para Backtesting: {df.shape[0]} filas. No se puede simular el trading.")
+        print(f"--- ✅ RESULTADOS DEL BACKTEST ---")
+        print(f"💰 Capital Inicial: ${INITIAL_CAPITAL:,.2f}")
+        print(f"💵 Capital Final:   ${INITIAL_CAPITAL:,.2f}")
+        print(f"📈 Ganancia Neta (%): 0.00%")
+        print(f"📉 Max Drawdown: 0.00%")
+        print("-" * 30)
+        print("Compra y Mantén (Buy & Hold) Ganancia: No calculada por falta de datos.")
         return
 
     # 2. Predicción en todas las velas
     X = df[feature_cols_for_prediction] 
-    probabilities = model.predict_proba(X) 
+    
+    # IMPORTANTE: Aseguramos que los datos se escalen antes de la predicción en el backtest.
+    try:
+        X_scaled = prediction_model.scaler.transform(X)
+        probabilities = prediction_model.model.predict_proba(X_scaled) 
+    except Exception as e:
+        print(f"❌ Error al escalar o predecir en Backtest: {e}")
+        return
+
     df['Prob_Up'] = probabilities[:, 1]
     
     # 3. Generación de Señales de Compra/Venta
-    # Señal de Compra (1) si Prob_Up > 0.70 (BUY_THRESHOLD)
     df['Signal'] = np.where(df['Prob_Up'] > BUY_THRESHOLD, 1, 0)
-    
-    # Señal de Venta (-1) si Prob_Up < 0.30 (SELL_THRESHOLD)
     df['Signal'] = np.where(df['Prob_Up'] < SELL_THRESHOLD, -1, df['Signal'])
 
     # 4. SIMULACIÓN DE TRADING
@@ -129,7 +141,8 @@ def plot_backtest_results(df):
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
     color = 'tab:red'
-    ax1.set_xlabel(f'Fecha/Hora ({config.TIMEFRAME})')
+    # >>> CORRECCIÓN: Usar corchetes para TIMEFRAME
+    ax1.set_xlabel(f'Fecha/Hora ({config["TIMEFRAME"]})')
     ax1.set_ylabel('Capital ($)', color=color)
     ax1.plot(df.index, df['Capital'], color=color, label='Curva de Capital (Estrategia)')
     ax1.tick_params(axis='y', labelcolor=color)
@@ -141,6 +154,7 @@ def plot_backtest_results(df):
     ax2.tick_params(axis='y', labelcolor=color)
 
     fig.tight_layout() 
-    plt.title(f'Backtesting de Rendimiento ({config.SYMBOL})')
+    # >>> CORRECCIÓN: Usar corchetes para SYMBOL
+    plt.title(f'Backtesting de Rendimiento ({config["SYMBOL"]})')
     plt.grid(True)
     plt.show()

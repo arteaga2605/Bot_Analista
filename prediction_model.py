@@ -1,21 +1,27 @@
-# prediction_model.py (ACTUALIZADO con MinMaxScaler)
+# prediction_model.py (FINALIZADO: 11 Features + Normalización + Tuning Fino - SIN ADVERTENCIA)
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-# >>> NUEVA IMPORTACIÓN PARA NORMALIZACIÓN
 from sklearn.preprocessing import MinMaxScaler
 from xgboost import XGBClassifier 
 from sklearn.metrics import accuracy_score
 import joblib 
 import os 
+import ta 
 
 # Variables globales para simular el aprendizaje
 model = None
-# >>> NUEVA VARIABLE GLOBAL PARA ALMACENAR EL SCALER (ESCALADOR)
 scaler = None 
 MODEL_FILENAME = 'crypto_model_xgb.joblib' 
-SCALER_FILENAME = 'crypto_scaler.joblib' # Nuevo archivo para guardar el scaler
-feature_cols = ['RSI', 'SMA_50', 'EMA_20', 'ADX', 'CCI', 'MACD', 'ATR'] 
+SCALER_FILENAME = 'crypto_scaler.joblib' 
+
+# >>> LISTA DE FEATURES MÁS ROBUSTAS
+feature_cols = [
+    'RSI', 'SMA_50', 'EMA_20', 'ADX', 'CCI', 'MACD', 'ATR',
+    'CLOSE_VS_SMA', 
+    'CLOSE_VS_EMA', 
+    'MACD_SIGNAL_DIFF'
+] 
 final_feature_cols = feature_cols + ['Polaridad_Sentimiento']
 
 def load_model():
@@ -39,7 +45,6 @@ def load_model():
             model = None
             loaded_ok = False
             
-    # --- Cargar Scaler ---
     if os.path.exists(SCALER_FILENAME):
         try:
             scaler = joblib.load(SCALER_FILENAME)
@@ -76,33 +81,48 @@ def save_model():
 
 def prepare_data_for_training(df_analyzed, sentiment_data):
     """
-    Combina datos técnicos y de sentimiento y crea la columna objetivo (Target).
+    Combina datos técnicos y de sentimiento, crea variables relativas y el Target.
     """
-    required_cols_from_df = feature_cols + ['close'] 
+    required_cols_from_df = [
+        'close', 'SMA_50', 'EMA_20', 
+        'RSI', 'ADX', 'CCI', 'MACD', 'ATR'
+    ] 
     df_features = df_analyzed[required_cols_from_df].copy() 
-    
+
+    # --- CREACIÓN DE LAS NUEVAS FEATURES RELATIVAS ---
+    macd_indicator = ta.trend.MACD(close=df_features['close'], window_fast=12, window_slow=26, window_sign=9)
+    df_features['MACD_Signal'] = macd_indicator.macd_signal()
+
+    df_features['CLOSE_VS_SMA'] = (df_features['close'] - df_features['SMA_50']) / df_features['close']
+    df_features['CLOSE_VS_EMA'] = (df_features['close'] - df_features['EMA_20']) / df_features['close']
+    df_features['MACD_SIGNAL_DIFF'] = df_features['MACD'] - df_features['MACD_Signal']
+    # ------------------------------------------------
+
+    # Preparación del Target
     df_features['Precio_Futuro'] = df_features['close'].shift(-1)
     df_features['Target'] = np.where(df_features['Precio_Futuro'] > df_features['close'], 1, 0)
     
     polaridad_promedio = sentiment_data[0]
     df_features['Polaridad_Sentimiento'] = polaridad_promedio
     
-    df_features = df_features.dropna()
+    COLS_TO_KEEP = final_feature_cols + ['Target', 'close'] 
+    df_features = df_features[COLS_TO_KEEP].dropna()
     
     return df_features
 
 def train_or_update_model(data_df):
     """
-    Entrena un nuevo modelo XGBoost y ajusta el MinMaxScaler.
+    Entrena un nuevo modelo XGBoost con hiperparámetros ajustados (SIN use_label_encoder).
     """
     global model, scaler
     
     if model is None:
         model = XGBClassifier(
             objective='binary:logistic', 
-            n_estimators=100,            
-            learning_rate=0.1,           
-            use_label_encoder=False,     
+            n_estimators=300,            
+            learning_rate=0.05,          
+            max_depth=3,                 
+            # >>> ELIMINADO: use_label_encoder=False
             eval_metric='logloss',       
             random_state=42
         )
@@ -116,10 +136,6 @@ def train_or_update_model(data_df):
     
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    # ----------------------------------------------------
-    # >>> PASO DE NORMALIZACIÓN: FIT y TRANSFORM en el entrenamiento
-    # ----------------------------------------------------
-    # Creamos un nuevo scaler y lo ajustamos SOLO con los datos de entrenamiento
     scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
@@ -146,10 +162,6 @@ def predict_next_move(current_features):
 
     input_df = pd.DataFrame([current_features], columns=final_feature_cols)
     
-    # ----------------------------------------------------
-    # >>> PASO DE NORMALIZACIÓN: TRANSFORM en la predicción en vivo
-    # ----------------------------------------------------
-    # Usamos el scaler previamente ajustado (fit) para transformar los nuevos datos.
     input_scaled = scaler.transform(input_df)
 
     probabilities = model.predict_proba(input_scaled)[0]
@@ -168,9 +180,17 @@ def predict_next_move(current_features):
 
 def get_current_features(df_analyzed, sentiment_data):
     """
-    Extrae la última fila de datos para hacer la predicción en tiempo real.
+    Extrae la última fila de datos y calcula las features relativas en tiempo real.
     """
     last_row = df_analyzed.iloc[-1]
+    
+    macd_indicator = ta.trend.MACD(
+        close=df_analyzed['close'], 
+        window_fast=12, 
+        window_slow=26, 
+        window_sign=9
+    )
+    macd_signal_diff_val = last_row['MACD'] - macd_indicator.macd_signal().iloc[-1]
     
     current_features = {
         'RSI': last_row['RSI'],
@@ -180,9 +200,14 @@ def get_current_features(df_analyzed, sentiment_data):
         'CCI': last_row['CCI'],
         'MACD': last_row['MACD'], 
         'ATR': last_row['ATR'],   
+        
+        'CLOSE_VS_SMA': (last_row['close'] - last_row['SMA_50']) / last_row['close'], 
+        'CLOSE_VS_EMA': (last_row['close'] - last_row['EMA_20']) / last_row['close'], 
+        'MACD_SIGNAL_DIFF': macd_signal_diff_val,
+
         'Polaridad_Sentimiento': sentiment_data[0] 
     }
-    return current_features
+    
+    return {k: current_features[k] for k in final_feature_cols}
 
-# Intentar cargar el modelo y el scaler al inicio del script
 load_model()
