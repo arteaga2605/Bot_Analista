@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# Directorio del entorno virtual (MUY IMPORTANTE)
+venv/
+.venv/
+.venv311/
+
+# Archivos de Datos y Log (Pueden ser grandes o sensibles)
+*.csv
+*.log
+
+# Archivos de configuración y claves (CRUCIAL)
+config.py  # Recomendado ignorarlo si contiene claves reales
+keys.json 
+*.env
+
+# Carpetas de librerías de Python
+.vscode/
+build/
+dist/

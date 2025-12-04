@@ -1,0 +1,11 @@
+# Conexión con Exchanges
+ccxt==4.4.35
+
+# Matemáticas base (Versión estable)
+numpy==1.26.4
+
+# Análisis de Datos (Versión 1.5.3 es la más estable)
+pandas==1.5.3
+
+# NUEVO: Librería de Análisis Técnico Simple y Estable
+ta==0.11.0
