@@ -1,7 +1,7 @@
-# technical_analysis.py (CÓDIGO COMPLETO MODIFICADO CON PATRONES)
+# technical_analysis.py (CÓDIGO COMPLETO MODIFICADO)
 import pandas as pd
 import ta
-import pattern_detector # <--- NUEVA IMPORTACIÓN
+import pattern_detector
 
 def analyze_data(df):
     """
@@ -30,16 +30,21 @@ def analyze_data(df):
     # 4. MACD (Moving Average Convergence Divergence) - Necesitamos la línea MACD y la señal
     macd_indicator = ta.trend.MACD(df_analyzed['close'], window_fast=12, window_slow=26, window_sign=9)
     df_analyzed['MACD'] = macd_indicator.macd()
-    df_analyzed['MACD_Signal'] = macd_indicator.macd_signal() # ¡Añadida la Señal!
+    df_analyzed['MACD_Signal'] = macd_indicator.macd_signal() 
     
     # 5. ATR (Average True Range) - Volatilidad
     df_analyzed['ATR'] = ta.volatility.average_true_range(df_analyzed['high'], df_analyzed['low'], df_analyzed['close'], window=14)
 
-    # >>> 6. Detección de Patrones de Velas Japonesas (NUEVA FASE)
+    # >>> 6. FEATURE DE VOLUMEN (NUEVA)
+    # Volumen Relativo (Volumen vs. Media Móvil de Volumen)
+    df_analyzed['VOL_SMA_20'] = df_analyzed['volume'].rolling(window=20).mean()
+    df_analyzed['REL_VOLUME'] = (df_analyzed['volume'] - df_analyzed['VOL_SMA_20']) / df_analyzed['VOL_SMA_20']
+    
+    # 7. Detección de Patrones de Velas Japonesas
     df_analyzed = pattern_detector.detect_candlestick_patterns(df_analyzed)
     
+    # Eliminar las columnas auxiliares
+    df_analyzed.drop(columns=['VOL_SMA_20'], inplace=True, errors='ignore')
+
     # Eliminar las filas con NaN (las primeras filas no tienen cálculo completo)
     return df_analyzed.dropna()
-
-# NOTA: La función generate_signal(df) ha sido eliminada.
-# El sistema ahora depende completamente de la predicción del modelo ML.

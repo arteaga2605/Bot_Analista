@@ -1,11 +1,11 @@
-# prediction_model.py (CÓDIGO COMPLETO CORREGIDO)
+# prediction_model.py (CÓDIGO COMPLETO MODIFICADO)
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from xgboost import XGBClassifier 
 from sklearn.metrics import accuracy_score
-from sklearn.exceptions import NotFittedError # Añadido para manejo de errores
+from sklearn.exceptions import NotFittedError 
 import joblib 
 import os 
 import ta 
@@ -16,19 +16,21 @@ scaler = None
 MODEL_FILENAME = 'crypto_model_xgb.joblib' 
 SCALER_FILENAME = 'crypto_scaler.joblib' 
 
-# >>> LISTA DE FEATURES ACTUALIZADA con Patrones de Velas
+# >>> LISTA DE FEATURES ACTUALIZADA con Volumen (18 FEATURES TOTALES)
 feature_cols = [
     # 10 Features Técnicas Originales + 3 Features de MACD
     'RSI', 'SMA_50', 'EMA_20', 'ADX', 'CCI', 'MACD', 'ATR',
     'CLOSE_VS_SMA', 
     'CLOSE_VS_EMA', 
     'MACD_SIGNAL_DIFF',
-    # 6 Nuevas Features de Patrones de Velas
+    # 1 Nueva Feature de Volumen
+    'REL_VOLUME', # <--- NUEVA FEATURE DE VOLUMEN
+    # 6 Features de Patrones de Velas
     'CDLHAMMER', 'CDLINVERTEDHAMMER', 'CDLDOJI', 
     'CDLENGULFING', 'CDLSHOOTINGSTAR', 'CDLMORNINGSTAR'
 ] 
 final_feature_cols = feature_cols + ['Polaridad_Sentimiento']
-# El número total de features ahora es 10 + 6 + 1 = 17
+# El número total de features ahora es 11 + 6 + 1 = 18
 
 def load_model():
     """
@@ -43,14 +45,12 @@ def load_model():
             print(f"🧠 Modelo cargado exitosamente desde {MODEL_FILENAME}.")
             
             # Verificación del número de features del modelo cargado
-            # Usamos un try-except para manejar el caso de modelos antiguos o corruptos
             try:
                 if model.n_features_in_ != len(final_feature_cols):
-                     print(f"⚠️ El modelo cargado tiene {model.n_features_in_} features, pero se esperan {len(final_feature_cols)} (por los nuevos patrones). Se forzará re-entrenamiento.")
+                     print(f"⚠️ El modelo cargado tiene {model.n_features_in_} features, pero se esperan {len(final_feature_cols)} (por los nuevos patrones/volumen). Se forzará re-entrenamiento.")
                      model = None 
                      loaded_ok = False
             except NotFittedError:
-                 # Esto puede pasar si el modelo está cargado pero no tiene metadata de fitting
                  print("⚠️ Metadata de features no encontrada en el modelo. Se forzará re-entrenamiento.")
                  model = None 
                  loaded_ok = False
@@ -102,6 +102,7 @@ def prepare_data_for_training(df_analyzed, sentiment_data):
     required_cols_from_df = [
         'close', 'SMA_50', 'EMA_20', 
         'RSI', 'ADX', 'CCI', 'MACD', 'ATR', 'MACD_Signal',
+        'REL_VOLUME', # <--- NUEVA COLUMNA REQUERIDA
         'CDLHAMMER', 'CDLINVERTEDHAMMER', 'CDLDOJI', 
         'CDLENGULFING', 'CDLSHOOTINGSTAR', 'CDLMORNINGSTAR'
     ] 
@@ -131,7 +132,7 @@ def train_or_update_model(data_df):
     """
     global model, scaler
     
-    model_was_initialized = False # <<< FLAG PARA EVITAR NotFittedError
+    model_was_initialized = False 
 
     if model is None:
         model = XGBClassifier(
@@ -142,7 +143,7 @@ def train_or_update_model(data_df):
             eval_metric='logloss',       
             random_state=42
         )
-        model_was_initialized = True # <<< Se inicializó, forzamos re-entrenamiento del scaler
+        model_was_initialized = True 
         print("Model has been re-initialized to None, proceeding with full fit.")
 
     if data_df.shape[0] < 50:
@@ -154,17 +155,14 @@ def train_or_update_model(data_df):
     
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    # Creamos un nuevo scaler si no existe O si el modelo fue reinicializado (por feature mismatch)
-    if scaler is None or model_was_initialized: # <<< LÓGICA CORREGIDA: Usamos el flag
+    if scaler is None or model_was_initialized: 
         scaler = MinMaxScaler()
         X_train_scaled = scaler.fit_transform(X_train)
     else:
-        # Usamos el scaler existente
         X_train_scaled = scaler.transform(X_train)
         
     X_test_scaled = scaler.transform(X_test)
     
-    # Ignoramos la advertencia del deprecated use_label_encoder (ya la corregimos previamente)
     model.fit(X_train_scaled, y_train)
     
     y_pred = model.predict(X_test_scaled)
@@ -185,7 +183,6 @@ def predict_next_move(current_features):
     if model is None or scaler is None:
         return 0.0, "NEUTRAL", "Modelo o Scaler no entrenados"
 
-    # Verificación de la cantidad de features antes de transformar
     if len(current_features) != len(final_feature_cols):
          print(f"❌ Error de features: Se esperaban {len(final_feature_cols)} features, pero se recibieron {len(current_features)}.")
          return 0.0, "ERROR", "Conteo de features incorrecto"
@@ -215,11 +212,10 @@ def get_current_features(df_analyzed, sentiment_data):
     """
     last_row = df_analyzed.iloc[-1]
     
-    # Recálculo de la diferencia MACD (ya que TA-Lib no la incluye directamente en la librería 'ta')
     macd_signal_diff_val = last_row['MACD'] - last_row['MACD_Signal']
     
     current_features = {
-        # 10 Características Técnicas Originales
+        # 11 Características Técnicas
         'RSI': last_row['RSI'],
         'SMA_50': last_row['SMA_50'],
         'EMA_20': last_row['EMA_20'],
@@ -232,7 +228,9 @@ def get_current_features(df_analyzed, sentiment_data):
         'CLOSE_VS_EMA': (last_row['close'] - last_row['EMA_20']) / last_row['close'], 
         'MACD_SIGNAL_DIFF': macd_signal_diff_val,
 
-        # 6 Características de Patrones de Velas (Directamente de la fila analizada)
+        'REL_VOLUME': last_row['REL_VOLUME'], # <--- NUEVA FEATURE
+
+        # 6 Características de Patrones de Velas 
         'CDLHAMMER': last_row['CDLHAMMER'],
         'CDLINVERTEDHAMMER': last_row['CDLINVERTEDHAMMER'],
         'CDLDOJI': last_row['CDLDOJI'],

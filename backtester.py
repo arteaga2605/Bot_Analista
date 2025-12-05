@@ -1,4 +1,4 @@
-# backtester.py (FINAL CORREGIDO)
+# backtester.py (CÓDIGO COMPLETO FINAL)
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,17 +8,60 @@ from data_fetcher import config
 # --- CONFIGURACIÓN DE BACKTESTING ---
 INITIAL_CAPITAL = 10.0  
 COMMISSION_FEE = 0.001   
-# --- PARÁMETROS DE RIESGO ---
-STOP_LOSS_PCT = 0.05    
-TAKE_PROFIT_PCT = 0.10  
+# --- PARÁMETROS DE RIESGO (LIVE TRADING - BASADO EN ATR) ---
+SL_MULTIPLIER = 1.5   # Stop Loss a 1.5 veces el ATR
+TP_MULTIPLIER = 3.0   # Take Profit a 3.0 veces el ATR (Relación 1:2 riesgo/recompensa)
 # --- PARÁMETROS DE CONFIANZA ---
 BUY_THRESHOLD = 0.70    
 SELL_THRESHOLD = 0.30   
 # ------------------------------------
 
+def calculate_sl_tp_targets(last_data_row):
+    """
+    Calcula los niveles de Stop Loss y Take Profit basados en el ATR.
+    Recibe la última fila del DataFrame analizado.
+    """
+    last_close = last_data_row['close']
+    last_atr = last_data_row['ATR']
+    
+    if last_atr <= 0:
+        # Esto ocurre si ATR no pudo ser calculado
+        return {
+            'current_price': last_close,
+            'ATR': 0.0,
+            'SL_Buy': last_close,
+            'TP_Buy': last_close,
+            'SL_Sell': last_close,
+            'TP_Sell': last_close
+        }
+
+    # Calcula la distancia de riesgo/recompensa en términos de precio
+    sl_distance = last_atr * SL_MULTIPLIER
+    tp_distance = last_atr * TP_MULTIPLIER
+    
+    # Valores de SL y TP para una COMPRA (Buy Signal)
+    sl_buy = last_close - sl_distance
+    tp_buy = last_close + tp_distance
+    
+    # Valores de SL y TP para una VENTA/CORTO (Sell/Short Signal)
+    sl_sell = last_close + sl_distance
+    tp_sell = last_close - tp_distance
+    
+    # Se redondea a 4 decimales para mayor limpieza
+    return {
+        'current_price': last_close,
+        'ATR': round(last_atr, 4),
+        'SL_Buy': round(sl_buy, 4),
+        'TP_Buy': round(tp_buy, 4),
+        'SL_Sell': round(sl_sell, 4),
+        'TP_Sell': round(tp_sell, 4)
+    }
+
+
 def run_backtest(data_for_ml):
     """
-    Simula operaciones de compra y venta basándose en las predicciones del modelo.
+    Simula operaciones de compra y venta basándose en las predicciones del modelo,
+    utilizando SL/TP dinámicos basados en el ATR.
     """
     model = prediction_model.model 
     feature_cols_for_prediction = prediction_model.final_feature_cols 
@@ -27,7 +70,9 @@ def run_backtest(data_for_ml):
         print("❌ ERROR: El modelo de predicción no está entrenado o no se cargó.")
         return
 
-    print(f"\n--- 📈 INICIANDO BACKTESTING (Umbrales: COMPRA > {BUY_THRESHOLD*100}%, VENTA < {SELL_THRESHOLD*100}%) ---")
+    # Usamos los multiplicadores ATR configurados globalmente
+    risk_reward_ratio = TP_MULTIPLIER / SL_MULTIPLIER
+    print(f"\n--- 📈 INICIANDO BACKTESTING con GESTIÓN DE RIESGO DINÁMICA (SL={SL_MULTIPLIER}x ATR, TP={TP_MULTIPLIER}x ATR, R:R={risk_reward_ratio:.1f}:1) ---")
     
     df = data_for_ml.copy()
     
@@ -45,7 +90,6 @@ def run_backtest(data_for_ml):
     # 2. Predicción en todas las velas
     X = df[feature_cols_for_prediction] 
     
-    # IMPORTANTE: Aseguramos que los datos se escalen antes de la predicción en el backtest.
     try:
         X_scaled = prediction_model.scaler.transform(X)
         probabilities = prediction_model.model.predict_proba(X_scaled) 
@@ -66,33 +110,66 @@ def run_backtest(data_for_ml):
     df['Capital'] = INITIAL_CAPITAL
     shares_bought = 0     
     entry_price = 0       
+    sl_target = 0
+    tp_target = 0
     
+    # Añadir columna para registrar eventos de trading (opcional, pero útil)
+    df['Trade_Type'] = np.nan 
+
     for i in range(1, len(df)):
-        signal = df['Signal'].iloc[i-1]
+        # La señal y el ATR se basan en el conocimiento de la vela anterior (i-1)
+        prev_row = df.iloc[i-1]
+        signal = prev_row['Signal']
+        prev_atr = prev_row['ATR'] 
+        
         close_price = df['close'].iloc[i] 
+        high_price = df['high'].iloc[i] 
+        low_price = df['low'].iloc[i] 
         exit_operation = None 
 
-        # *** LÓGICA DE GESTIÓN DE RIESGO ***
-        if position == 1:
-            profit_pct = (close_price / entry_price) - 1.0
-
-            if profit_pct <= -STOP_LOSS_PCT: 
+        # *** LÓGICA DE GESTIÓN DE RIESGO Y CIERRE ***
+        if position == 1: # Posición de COMPRA Abierta
+            # Verificamos si se alcanzó el SL o TP dentro de la vela actual (i)
+            # Nota: Usamos high/low de la vela actual para simular la ejecución de órdenes
+            
+            # 1. ¿SL alcanzado?
+            if low_price <= sl_target: 
                 exit_operation = 'SL'
-            elif profit_pct >= TAKE_PROFIT_PCT: 
+                exit_price = sl_target
+            # 2. ¿TP alcanzado? (Si el TP es alcanzado antes que el SL en la misma vela, priorizamos el TP)
+            elif high_price >= tp_target: 
                 exit_operation = 'TP'
+                exit_price = tp_target
+            
+            # 3. ¿Cierre por señal inversa? (Si no hay SL/TP, vemos la señal de la vela anterior)
             elif signal == -1 or signal == 0: 
                 exit_operation = 'AI'
+                exit_price = close_price
 
         # --- Lógica de COMPRA ---
         if signal == 1 and position == 0:
             entry_price = close_price
+            
+            # Calculamos SL y TP dinámicamente con el ATR de la vela anterior
+            sl_distance = prev_atr * SL_MULTIPLIER
+            tp_distance = prev_atr * TP_MULTIPLIER
+            sl_target = entry_price - sl_distance
+            tp_target = entry_price + tp_distance
+
             shares_bought = (capital * (1 - COMMISSION_FEE)) / entry_price
             position = 1
+            df.loc[df.index[i], 'Trade_Type'] = 'BUY_OPEN'
 
-        # --- Lógica de VENTA ---
+        # --- Lógica de VENTA/CIERRE ---
         if exit_operation:
-            exit_price = close_price
-            
+            # Si se activó SL/TP, ya tenemos exit_price
+            if exit_operation in ['SL', 'TP']:
+                 # Usamos el precio objetivo (SL o TP) como precio de salida
+                 pass
+            elif exit_operation == 'AI':
+                 # Si es por señal de la IA, usamos el precio de cierre de la vela actual
+                 exit_price = close_price
+
             gross_profit = shares_bought * exit_price
             net_capital = gross_profit * (1 - COMMISSION_FEE)
             
@@ -100,6 +177,10 @@ def run_backtest(data_for_ml):
             position = 0
             shares_bought = 0
             entry_price = 0 
+            sl_target = 0
+            tp_target = 0
+            df.loc[df.index[i], 'Trade_Type'] = 'SELL_CLOSE_' + exit_operation
+
 
         # --- Lógica de MANTENER Posición ---
         elif position == 1:
@@ -132,6 +213,7 @@ def run_backtest(data_for_ml):
     
     # 7. VISUALIZACIÓN
     plot_backtest_results(df)
+
 
 def plot_backtest_results(df):
     """

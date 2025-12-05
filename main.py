@@ -1,4 +1,4 @@
-# main.py (FINAL PARA AUTOMATIZACIÓN)
+# main.py (CÓDIGO COMPLETO MODIFICADO)
 import data_fetcher
 import technical_analysis
 import social_media_fetcher
@@ -63,7 +63,6 @@ def run_bot(mode='live'):
     elif mode == 'live':
         
         # 5b. PREDECIR EL SIGUIENTE MOVIMIENTO
-        # Usamos solo la última fila para predecir
         latest_features = prediction_model.get_current_features(data_analyzed, sentiment_data)
         
         # Para el modo live, re-entrenamos con la nueva data antes de predecir
@@ -72,21 +71,30 @@ def run_bot(mode='live'):
 
         prob_up, prediction_text = prediction_model.predict_next_move(latest_features)
         
+        # 6b. CALCULAR OBJETIVOS DE RIESGO
+        last_row_analyzed = data_analyzed.iloc[-1]
+        targets = backtester.calculate_sl_tp_targets(last_row_analyzed)
+        
         print(f"\n--- 🤖 PREDICCIÓN DEL BOT ({data_fetcher.config['SYMBOL']}) ---")
+        print(f"Precio Actual: ${targets['current_price']:.4f} (Volatilidad ATR: {targets['ATR']:.4f})")
         print(f"Probabilidad de Subida (Target=1): {prob_up*100:.2f}%")
         
-        # 6b. GENERAR SEÑAL DE TRADING (Criterio de Compra/Venta)
+        # 7b. GENERAR SEÑAL DE TRADING (Criterio de Compra/Venta)
         if prob_up > backtester.BUY_THRESHOLD:
             print(f"✅ SEÑAL DE COMPRA FUERTE (Confianza > {backtester.BUY_THRESHOLD*100}%)")
-            print("💰 ACCIÓN RECOMENDADA: ¡COMPRAR!")
+            print(f"💰 ACCIÓN RECOMENDADA: ¡COMPRAR!")
+            print(f"   Objetivo de Ganancia (TP): ${targets['TP_Buy']:.4f}")
+            print(f"   Límite de Pérdida (SL): ${targets['SL_Buy']:.4f}")
         elif prob_up < backtester.SELL_THRESHOLD:
             print(f"🔻 SEÑAL DE VENTA FUERTE (Confianza < {backtester.SELL_THRESHOLD*100}%)")
-            print("❌ ACCIÓN RECOMENDADA: ¡VENDER/CERRAR POSICIÓN!")
+            print(f"❌ ACCIÓN RECOMENDADA: ¡VENDER/CERRAR POSICIÓN!")
+            print(f"   Objetivo de Ganancia (TP): ${targets['TP_Sell']:.4f}")
+            print(f"   Límite de Pérdida (SL): ${targets['SL_Sell']:.4f}")
         else:
             print(f"💤 SEÑAL NEUTRAL ({prediction_text})")
             print("⚖️ ACCIÓN RECOMENDADA: ¡ESPERAR!")
 
-# 7. INICIO DEL BOT
+# 8. INICIO DEL BOT
 if __name__ == "__main__":
     # >>> CAMBIO CLAVE: Iniciamos el bucle de operación en modo 'live'
     print("\n--- 🚀 MODO DE OPERACIÓN EN VIVO INICIADO ---")
