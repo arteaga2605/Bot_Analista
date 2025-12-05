@@ -1,71 +1,45 @@
-# technical_analysis.py (Updated with MACD and ATR)
+# technical_analysis.py (CÓDIGO COMPLETO MODIFICADO CON PATRONES)
 import pandas as pd
-import ta 
+import ta
+import pattern_detector # <--- NUEVA IMPORTACIÓN
 
 def analyze_data(df):
     """
-    Recibe un DataFrame con precios y añade indicadores técnicos usando la librería TA.
+    Calcula todos los indicadores técnicos y patrones de velas.
     """
+    
     if df is None or df.empty:
         print("⚠️ No hay datos para analizar.")
         return None
 
     print("📊 Calculando indicadores técnicos con la librería 'ta'...")
 
-    # 1. RSI (Índice de Fuerza Relativa)
-    df['RSI'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
-
-    # 2. SMA (Media Móvil Simple) - 50 periodos
-    df['SMA_50'] = ta.trend.SMAIndicator(close=df['close'], window=50).sma_indicator()
-
-    # 3. EMA (Media Móvil Exponencial) - 20 periodos
-    df['EMA_20'] = ta.trend.EMAIndicator(close=df['close'], window=20).ema_indicator()
+    # Asegurarse de tener una copia limpia
+    df_analyzed = df.copy()
     
-    # 4. ADX (Average Directional Index) - Fuerza de Tendencia
-    adx_indicator = ta.trend.ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
-    df['ADX'] = adx_indicator.adx()
-
-    # 5. CCI (Commodity Channel Index) - Desviación del promedio
-    df['CCI'] = ta.trend.CCIIndicator(high=df['high'], low=df['low'], close=df['close'], window=20).cci()
-
-    # 6. Bandas de Bollinger 
-    bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
-    df['BBL'] = bb.bollinger_lband()
-    df['BBU'] = bb.bollinger_hband()
-
-    # --- NUEVOS INDICADORES ---
-    # 7. MACD (Moving Average Convergence Divergence)
-    macd_indicator = ta.trend.MACD(close=df['close'], window_fast=12, window_slow=26, window_sign=9)
-    df['MACD'] = macd_indicator.macd() # Solo usamos la línea MACD principal
+    # 1. Indicadores de Tendencia
+    df_analyzed['SMA_50'] = ta.trend.sma_indicator(df_analyzed['close'], window=50)
+    df_analyzed['EMA_20'] = ta.trend.ema_indicator(df_analyzed['close'], window=20)
+    # 2. ADX (Average Directional Index) - Fuerza de Tendencia
+    df_analyzed['ADX'] = ta.trend.adx(df_analyzed['high'], df_analyzed['low'], df_analyzed['close'], window=14)
     
-    # 8. ATR (Average True Range) - Volatilidad
-    df['ATR'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
+    # 3. Indicadores de Momento
+    df_analyzed['RSI'] = ta.momentum.rsi(df_analyzed['close'], window=14)
+    df_analyzed['CCI'] = ta.trend.cci(df_analyzed['high'], df_analyzed['low'], df_analyzed['close'], window=20)
+    
+    # 4. MACD (Moving Average Convergence Divergence) - Necesitamos la línea MACD y la señal
+    macd_indicator = ta.trend.MACD(df_analyzed['close'], window_fast=12, window_slow=26, window_sign=9)
+    df_analyzed['MACD'] = macd_indicator.macd()
+    df_analyzed['MACD_Signal'] = macd_indicator.macd_signal() # ¡Añadida la Señal!
+    
+    # 5. ATR (Average True Range) - Volatilidad
+    df_analyzed['ATR'] = ta.volatility.average_true_range(df_analyzed['high'], df_analyzed['low'], df_analyzed['close'], window=14)
+
+    # >>> 6. Detección de Patrones de Velas Japonesas (NUEVA FASE)
+    df_analyzed = pattern_detector.detect_candlestick_patterns(df_analyzed)
     
     # Eliminar las filas con NaN (las primeras filas no tienen cálculo completo)
-    df = df.dropna()
+    return df_analyzed.dropna()
 
-    return df
-
-def generate_signal(df):
-    """
-    Genera una señal simple basada en el último dato para el reporte de texto.
-    """
-    if df.empty:
-        return "SIN DATOS VÁLIDOS", 0, 0
-        
-    last_row = df.iloc[-1]
-    rsi = last_row['RSI']
-    close_price = last_row['close']
-    ema_20 = last_row['EMA_20']
-
-    signal = "NEUTRAL"
-    confidence = "0%"
-
-    if rsi < 30 and close_price > ema_20:
-        signal = "POSIBLE COMPRA (Rebote)"
-        confidence = "60%"
-    elif rsi > 70 and close_price < ema_20:
-        signal = "POSIBLE VENTA (Corrección)"
-        confidence = "60%"
-    
-    return signal, rsi, close_price
+# NOTA: La función generate_signal(df) ha sido eliminada.
+# El sistema ahora depende completamente de la predicción del modelo ML.

@@ -27,3 +27,6 @@ matplotlib
 
 # Machine Learning Avanzado
 xgboost
+
+#Patrones
+TA-Lib
