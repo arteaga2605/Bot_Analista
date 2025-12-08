@@ -1,25 +1,21 @@
-# main.py (CÓDIGO COMPLETO MODIFICADO)
+# main.py (CÓDIGO COMPLETO CORREGIDO)
 import data_fetcher
 import technical_analysis
 import social_media_fetcher
 import prediction_model
 import backtester
 import time 
+import sys 
+import pandas as pd 
 
-# --- CONFIGURACIÓN DE AUTOMATIZACIÓN ---
-# Tiempo de espera en segundos entre cada chequeo de mercado (1 hora = 3600 segundos)
-CHECK_INTERVAL_SECONDS = 3600 
+CHECK_INTERVAL_SECONDS = 14400 
 
 def run_bot(mode='live'):
-    """
-    Función principal para correr el bot en modo backtest o live.
-    """
-    
-    # 1. OBTENER DATOS DE NOTICIAS
     sentiment_data = [0.5] 
     print("📡 Obteniendo titulares de noticias recientes (vía API)...")
     try:
-        real_headlines = social_media_fetcher.fetch_recent_headlines(symbol=data_fetcher.config['SYMBOL'])
+        symbol = data_fetcher.config.get('SYMBOL', 'LINKUSDT')
+        real_headlines = social_media_fetcher.fetch_recent_headlines(symbol=symbol)
         if real_headlines:
             print(f"✅ {len(real_headlines)} titulares obtenidos de fuente real.")
             print(f"📰 Analizando sentimiento de {len(real_headlines)} textos...")
@@ -29,59 +25,48 @@ def run_bot(mode='live'):
     except Exception as e:
         print(f"❌ Error crítico al obtener o analizar noticias: {e}. Usando sentimiento neutral (0.5).")
         
-    # 2. OBTENER DATOS DE PRECIO
     print(f"🔄 Conectando a binance para obtener datos de {data_fetcher.config['SYMBOL']}...")
-    data_df = data_fetcher.fetch_data()
-    
-    if data_df is None or data_df.empty:
-        print("❌ Terminando la ejecución: No se pudieron obtener datos de precio.")
-        return
-
-    print(f"✅ Datos obtenidos exitosamente: {len(data_df)} velas.")
-
-    # 3. ANÁLISIS TÉCNICO
-    print("📊 Calculando indicadores técnicos con la librería 'ta'...")
-    data_analyzed = technical_analysis.analyze_data(data_df)
-    
-    if data_analyzed is None or data_analyzed.empty:
-        print("❌ Terminando la ejecución: El análisis técnico no produjo datos válidos.")
-        return
-
-    # 4. PREPARACIÓN DE DATOS PARA ML
-    data_for_ml = prediction_model.prepare_data_for_training(data_analyzed, sentiment_data)
-
     if mode == 'backtest':
-        print(f"--- 🔬 INICIANDO BACKTEST (OBTENIENDO {data_fetcher.config.get('LIMIT', 'N/A')} VELAS) ---")
-        
-        # 5a. ENTRENAMIENTO/ACTUALIZACIÓN del MODELO
-        print("\n--- 🧠 ENTRENANDO EL MODELO ---")
-        prediction_model.train_or_update_model(data_for_ml)
-        
-        # 6a. EJECUTAR BACKTESTING
-        backtester.run_backtest(data_for_ml) 
-        
-    elif mode == 'live':
-        
-        # 5b. PREDECIR EL SIGUIENTE MOVIMIENTO
-        latest_features = prediction_model.get_current_features(data_analyzed, sentiment_data)
-        
-        # Para el modo live, re-entrenamos con la nueva data antes de predecir
+        df_raw = data_fetcher.get_historical_data(limit=3000)
+        print(f"✅ Datos obtenidos exitosamente: {df_raw.shape[0]} velas.")
+    else:
+        df_raw = data_fetcher.get_historical_data(limit=1000)
+        print(f"✅ Datos obtenidos exitosamente: {df_raw.shape[0]} velas.")
+
+    if df_raw is None or df_raw.empty:
+        print("❌ No se pudieron obtener datos históricos. Deteniendo el bot.")
+        return
+
+    data_with_ta = technical_analysis.analyze_data(df_raw)
+    print("--- 🧠 PREPARANDO DATA PARA MACHINE LEARNING ---")
+    data_for_ml = prediction_model.prepare_data_for_training(data_with_ta, sentiment_data) 
+    
+    if mode == 'live':
         print("\n--- 🧠 ACTUALIZANDO EL MODELO CON LA ÚLTIMA DATA ---")
         prediction_model.train_or_update_model(data_for_ml)
+    elif mode == 'backtest':
+        print("\n--- 🧠 ENTRENANDO EL MODELO ---")
+        prediction_model.train_or_update_model(data_for_ml)
+    
+    if mode == 'live':
+        last_row_for_prediction_df = prediction_model.get_current_features(data_with_ta, sentiment_data)
+        
+        if last_row_for_prediction_df.empty:
+            print("❌ No hay datos suficientes para generar features de predicción en vivo. Saltando predicción.")
+            return
+            
+        prob_up, prediction_text = prediction_model.predict_next_move(last_row_for_prediction_df)
+        last_row = last_row_for_prediction_df.iloc[-1]  # ✅ Serie de 1 fila
+        print(f"[DEBUG] last_row type: {type(last_row)}, close: {last_row['close']}, ATR: {last_row['ATR']}")
+        
+        targets = backtester.calculate_sl_tp_targets(last_row)
 
-        prob_up, prediction_text = prediction_model.predict_next_move(latest_features)
-        
-        # 6b. CALCULAR OBJETIVOS DE RIESGO
-        last_row_analyzed = data_analyzed.iloc[-1]
-        targets = backtester.calculate_sl_tp_targets(last_row_analyzed)
-        
-        print(f"\n--- 🤖 PREDICCIÓN DEL BOT ({data_fetcher.config['SYMBOL']}) ---")
-        print(f"Precio Actual: ${targets['current_price']:.4f} (Volatilidad ATR: {targets['ATR']:.4f})")
-        print(f"Probabilidad de Subida (Target=1): {prob_up*100:.2f}%")
-        
-        # 7b. GENERAR SEÑAL DE TRADING (Criterio de Compra/Venta)
+        print("\n--- 📣 GENERANDO SEÑAL DE TRADING EN VIVO ---")
+        print(f"✅ Probabilidad de SUBIDA: {prob_up*100:.2f}% ({prediction_text})")
+        print(f"📉 Volatilidad (ATR): {targets['ATR']:.4f}")
+
         if prob_up > backtester.BUY_THRESHOLD:
-            print(f"✅ SEÑAL DE COMPRA FUERTE (Confianza > {backtester.BUY_THRESHOLD*100}%)")
+            print(f"📈 SEÑAL DE COMPRA FUERTE (Confianza > {backtester.BUY_THRESHOLD*100}%)")
             print(f"💰 ACCIÓN RECOMENDADA: ¡COMPRAR!")
             print(f"   Objetivo de Ganancia (TP): ${targets['TP_Buy']:.4f}")
             print(f"   Límite de Pérdida (SL): ${targets['SL_Buy']:.4f}")
@@ -94,22 +79,24 @@ def run_bot(mode='live'):
             print(f"💤 SEÑAL NEUTRAL ({prediction_text})")
             print("⚖️ ACCIÓN RECOMENDADA: ¡ESPERAR!")
 
-# 8. INICIO DEL BOT
+    elif mode == 'backtest':
+        backtester.run_backtest(data_for_ml)
+        
 if __name__ == "__main__":
-    # >>> CAMBIO CLAVE: Iniciamos el bucle de operación en modo 'live'
+    prediction_model.load_model()
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'live'
+    
+    if mode == 'backtest':
+        run_bot(mode='backtest')
+        sys.exit()
+
     print("\n--- 🚀 MODO DE OPERACIÓN EN VIVO INICIADO ---")
     while True:
         try:
             run_bot(mode='live')
-            
-            # Pausa para esperar la próxima vela (1 hora)
-            print(f"\n--- ⏸️ Esperando {CHECK_INTERVAL_SECONDS/60} minutos para la próxima vela ({time.ctime()}) ---")
+            print(f"\n--- ⏸️ Esperando {CHECK_INTERVAL_SECONDS/60} minutos para la próxima ejecución... ---")
             time.sleep(CHECK_INTERVAL_SECONDS)
-            
-        except KeyboardInterrupt:
-            print("\n👋 Ejecución detenida por el usuario.")
-            break
         except Exception as e:
             print(f"\n❌ Ocurrió un error en el ciclo principal: {e}")
-            print(f"Reintentando en 60 segundos...")
+            print("Reintentando en 60 segundos...")
             time.sleep(60)
