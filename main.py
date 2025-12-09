@@ -96,6 +96,10 @@ if __name__ == "__main__":
             run_bot(mode='live')
             print(f"\n--- ⏸️ Esperando {CHECK_INTERVAL_SECONDS/60} minutos para la próxima ejecución... ---")
             time.sleep(CHECK_INTERVAL_SECONDS)
+        except KeyboardInterrupt:
+            print("\n⏹️ Detención manual por el usuario (Ctrl + C).")
+            print("🧹 Cerrando bot de forma segura...")
+            sys.exit(0)   # Salida limpia
         except Exception as e:
             print(f"\n❌ Ocurrió un error en el ciclo principal: {e}")
             print("Reintentando en 60 segundos...")
